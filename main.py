@@ -1,3 +1,4 @@
+
 import os
 import asyncio
 from aiohttp import web
@@ -6,12 +7,11 @@ from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import CommandStart
 
 TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-
-# Головне меню
 main_menu = ReplyKeyboardMarkup(
     keyboard=[
         [
@@ -83,8 +83,7 @@ async def contacts(message: Message):
 @dp.message(lambda message: message.text == "📅 Записатися")
 async def booking(message: Message):
     await message.answer(
-        "📅 Запис на манікюр\n\n"
-        "Напишіть одним повідомленням:\n\n"
+        "📅 Для запису напишіть одним повідомленням:\n\n"
         "💅 Послуга:\n"
         "📅 Дата:\n"
         "⏰ Час:\n"
@@ -94,6 +93,47 @@ async def booking(message: Message):
         "5 жовтня\n"
         "15:00\n"
         "Анна"
+    )
+
+
+@dp.message()
+async def receive_booking(message: Message):
+    if not message.text:
+        return
+
+    if message.text.startswith("/"):
+        return
+
+    if message.text in [
+        "💅 Послуги",
+        "💰 Ціни",
+        "📅 Записатися",
+        "📍 Адреса",
+        "📞 Контакти"
+    ]:
+        return
+
+    client_name = message.from_user.full_name
+    username = message.from_user.username
+
+    username_text = f"@{username}" if username else "немає"
+
+    booking_text = (
+        "🔔 НОВИЙ ЗАПИС!\n\n"
+        f"👤 Клієнт: {client_name}\n"
+        f"📱 Telegram: {username_text}\n\n"
+        "📝 Повідомлення клієнта:\n"
+        f"{message.text}"
+    )
+
+    await bot.send_message(
+        chat_id=ADMIN_ID,
+        text=booking_text
+    )
+
+    await message.answer(
+        "✅ Дякуємо! Вашу заявку отримано.\n\n"
+        "Майстер зв'яжеться з вами для підтвердження запису."
     )
 
 
