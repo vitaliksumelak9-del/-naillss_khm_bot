@@ -1,4 +1,3 @@
-
 import os
 import asyncio
 from aiohttp import web
@@ -24,6 +23,23 @@ main_menu = ReplyKeyboardMarkup(
         ],
         [
             KeyboardButton(text="📞 Контакти"),
+        ],
+    ],
+    resize_keyboard=True
+)
+
+services_menu = ReplyKeyboardMarkup(
+    keyboard=[
+        [
+            KeyboardButton(text="💅 Манікюр"),
+            KeyboardButton(text="💅 Гель-лак"),
+        ],
+        [
+            KeyboardButton(text="💅 Нарощування"),
+            KeyboardButton(text="🎨 Дизайн"),
+        ],
+        [
+            KeyboardButton(text="🦶 Педикюр"),
         ],
     ],
     resize_keyboard=True
@@ -80,61 +96,118 @@ async def contacts(message: Message):
     )
 
 
+# Початок запису
 @dp.message(lambda message: message.text == "📅 Записатися")
 async def booking(message: Message):
     await message.answer(
-        "📅 Для запису напишіть одним повідомленням:\n\n"
-        "💅 Послуга:\n"
-        "📅 Дата:\n"
-        "⏰ Час:\n"
-        "👤 Ім'я:\n\n"
-        "Наприклад:\n"
-        "Гель-лак\n"
-        "5 жовтня\n"
-        "15:00\n"
-        "Анна"
+        "📅 Почнемо запис!\n\n"
+        "Оберіть потрібну послугу:",
+        reply_markup=services_menu
     )
 
 
-@dp.message()
-async def receive_booking(message: Message):
-    if not message.text:
-        return
-
-    if message.text.startswith("/"):
-        return
-
-    if message.text in [
-        "💅 Послуги",
-        "💰 Ціни",
-        "📅 Записатися",
-        "📍 Адреса",
-        "📞 Контакти"
-    ]:
-        return
-
-    client_name = message.from_user.full_name
-    username = message.from_user.username
-
-    username_text = f"@{username}" if username else "немає"
-
-    booking_text = (
-        "🔔 НОВИЙ ЗАПИС!\n\n"
-        f"👤 Клієнт: {client_name}\n"
-        f"📱 Telegram: {username_text}\n\n"
-        "📝 Повідомлення клієнта:\n"
-        f"{message.text}"
-    )
-
-    await bot.send_message(
-        chat_id=ADMIN_ID,
-        text=booking_text
-    )
+# Вибір послуги
+@dp.message(lambda message: message.text in [
+    "💅 Манікюр",
+    "💅 Гель-лак",
+    "💅 Нарощування",
+    "🎨 Дизайн",
+    "🦶 Педикюр"
+])
+async def choose_service(message: Message):
+    service = message.text
 
     await message.answer(
-        "✅ Дякуємо! Вашу заявку отримано.\n\n"
-        "Майстер зв'яжеться з вами для підтвердження запису."
+        f"✅ Обрана послуга: {service}\n\n"
+        "Тепер напишіть ваше ім'я:"
     )
+
+    # Зберігаємо послугу
+    await state_save(message.from_user.id, "service", service)
+
+
+# Тимчасове сховище записів
+user_data = {}
+
+
+async def state_save(user_id, key, value):
+    if user_id not in user_data:
+        user_data[user_id] = {}
+
+    user_data[user_id][key] = value
+
+
+# Отримання імені
+@dp.message()
+async def booking_steps(message: Message):
+    user_id = message.from_user.id
+
+    if user_id not in user_data:
+        return
+
+    data = user_data[user_id]
+
+    # Ім'я
+    if "service" in data and "name" not in data:
+        data["name"] = message.text
+
+        await message.answer(
+            "📅 Добре!\n\n"
+            "Тепер напишіть бажану дату.\n\n"
+            "Наприклад: 5 жовтня"
+        )
+        return
+
+    # Дата
+    if "name" in data and "date" not in data:
+        data["date"] = message.text
+
+        await message.answer(
+            "⏰ Тепер напишіть бажаний час.\n\n"
+            "Наприклад: 15:00"
+        )
+        return
+
+    # Час
+    if "date" in data and "time" not in data:
+        data["time"] = message.text
+
+        await message.answer(
+            "📋 Перевірте ваш запис:\n\n"
+            f"💅 Послуга: {data['service']}\n"
+            f"👤 Ім'я: {data['name']}\n"
+            f"📅 Дата: {data['date']}\n"
+            f"⏰ Час: {data['time']}\n\n"
+            "Якщо все правильно, напишіть: ТАК"
+        )
+        return
+
+    # Підтвердження
+    if "time" in data and message.text.lower() in ["так", "да", "yes"]:
+        username = message.from_user.username
+        username_text = f"@{username}" if username else "немає"
+
+        booking_text = (
+            "🔔 НОВИЙ ЗАПИС!\n\n"
+            f"👤 Ім'я: {data['name']}\n"
+            f"📱 Telegram: {username_text}\n"
+            f"💅 Послуга: {data['service']}\n"
+            f"📅 Дата: {data['date']}\n"
+            f"⏰ Час: {data['time']}"
+        )
+
+        await bot.send_message(
+            chat_id=ADMIN_ID,
+            text=booking_text
+        )
+
+        await message.answer(
+            "✅ Запис прийнято!\n\n"
+            "Дякуємо за заявку. Майстер зв'яжеться з вами для підтвердження."
+        )
+
+        del user_data[user_id]
+        return
 
 
 async def health(request):
