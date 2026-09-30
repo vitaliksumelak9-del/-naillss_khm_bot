@@ -14,31 +14,36 @@ dp = Dispatcher()
 @dp.message(CommandStart())
 async def start(message: Message):
     await message.answer(
-        "💅 Вітаю! Я бот майстра манікюру.\n\n"
-        "Тут можна буде записатися на манікюр та дізнатися про послуги."
+        "💅 Вітаю! Я бот майстра манікюру!\n\n"
+        "Напиши мені, щоб дізнатися про послуги та записатися."
     )
 
 
-async def telegram_bot():
-    await dp.start_polling(bot)
-
-
 async def health(request):
-    return web.Response(text="Bot is running!")
+    return web.Response(text="OK")
 
 
-async def main():
+async def start_web_server():
     app = web.Application()
     app.router.add_get("/", health)
 
     runner = web.AppRunner(app)
     await runner.setup()
 
-    port = int(os.getenv("PORT", 10000))
+    port = int(os.environ.get("PORT", 10000))
+
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
 
-    await telegram_bot()
+    print(f"Web server started on port {port}")
+
+
+async def main():
+    await start_web_server()
+
+    print("Telegram bot started")
+
+    await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
