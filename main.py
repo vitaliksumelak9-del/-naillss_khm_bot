@@ -1,3 +1,4 @@
+
 import os
 import asyncio
 from aiohttp import web
@@ -11,6 +12,7 @@ ADMIN_ID = int(os.getenv("ADMIN_ID"))
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
+# Головне меню
 main_menu = ReplyKeyboardMarkup(
     keyboard=[
         [
@@ -28,6 +30,7 @@ main_menu = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
+# Послуги для запису
 services_menu = ReplyKeyboardMarkup(
     keyboard=[
         [
@@ -44,6 +47,17 @@ services_menu = ReplyKeyboardMarkup(
     ],
     resize_keyboard=True
 )
+
+# Дані клієнтів під час запису
+user_data = {}
+
+booking_services = [
+    "💅 Манікюр",
+    "💅 Гель-лак",
+    "💅 Нарощування",
+    "🎨 Дизайн",
+    "🦶 Педикюр"
+]
 
 
 @dp.message(CommandStart())
@@ -99,6 +113,8 @@ async def contacts(message: Message):
 # Початок запису
 @dp.message(lambda message: message.text == "📅 Записатися")
 async def booking(message: Message):
+    user_data[message.from_user.id] = {}
+
     await message.answer(
         "📅 Почнемо запис!\n\n"
         "Оберіть потрібну послугу:",
@@ -107,37 +123,22 @@ async def booking(message: Message):
 
 
 # Вибір послуги
-@dp.message(lambda message: message.text in [
-    "💅 Манікюр",
-    "💅 Гель-лак",
-    "💅 Нарощування",
-    "🎨 Дизайн",
-    "🦶 Педикюр"
-])
+@dp.message(lambda message: message.text in booking_services)
 async def choose_service(message: Message):
-    service = message.text
+    user_id = message.from_user.id
+
+    if user_id not in user_data:
+        return
+
+    user_data[user_id]["service"] = message.text
 
     await message.answer(
-        f"✅ Обрана послуга: {service}\n\n"
-        "Тепер напишіть ваше ім'я:"
+        f"✅ Обрана послуга: {message.text}\n\n"
+        "👤 Напишіть ваше ім'я:"
     )
 
-    # Зберігаємо послугу
-    await state_save(message.from_user.id, "service", service)
 
-
-# Тимчасове сховище записів
-user_data = {}
-
-
-async def state_save(user_id, key, value):
-    if user_id not in user_data:
-        user_data[user_id] = {}
-
-    user_data[user_id][key] = value
-
-
-# Отримання імені
+# Наступні кроки запису
 @dp.message()
 async def booking_steps(message: Message):
     user_id = message.from_user.id
@@ -162,9 +163,28 @@ async def booking_steps(message: Message):
     if "name" in data and "date" not in data:
         data["date"] = message.text
 
+        time_menu = ReplyKeyboardMarkup(
+            keyboard=[
+                [
+                    KeyboardButton(text="🕙 10:00"),
+                    KeyboardButton(text="🕐 13:00"),
+                ],
+                [
+                    KeyboardButton(text="🕓 16:00"),
+                    KeyboardButton(text="🕡 18:30"),
+                ],
+                [
+                    KeyboardButton(
+                        text="🤝 Інший час — узгодити з майстром"
+                    ),
+                ],
+            ],
+            resize_keyboard=True
+        )
+
         await message.answer(
-            "⏰ Тепер напишіть бажаний час.\n\n"
-            "Наприклад: 15:00"
+            "⏰ Оберіть бажаний час:",
+            reply_markup=time_menu
         )
         return
 
@@ -172,18 +192,6 @@ async def booking_steps(message: Message):
     if "date" in data and "time" not in data:
         data["time"] = message.text
 
-        await message.answer(
-            "📋 Перевірте ваш запис:\n\n"
-            f"💅 Послуга: {data['service']}\n"
-            f"👤 Ім'я: {data['name']}\n"
-            f"📅 Дата: {data['date']}\n"
-            f"⏰ Час: {data['time']}\n\n"
-            "Якщо все правильно, напишіть: ТАК"
-        )
-        return
-
-    # Підтвердження
-    if "time" in data and message.text.lower() in ["так", "да", "yes"]:
         username = message.from_user.username
         username_text = f"@{username}" if username else "немає"
 
@@ -202,14 +210,15 @@ async def booking_steps(message: Message):
         )
 
         await message.answer(
-            "✅ Запис прийнято!\n\n"
-            "Дякуємо за заявку. Майстер зв'яжеться з вами для підтвердження."
+            "✅ Заявку отримано!\n\n"
+            "Майстер зв'яжеться з вами для підтвердження запису.",
+            reply_markup=main_menu
         )
 
         del user_data[user_id]
-        return
 
 
+# Сервер для Render
 async def health(request):
     return web.Response(text="OK")
 
