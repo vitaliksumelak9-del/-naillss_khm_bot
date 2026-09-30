@@ -2,17 +2,25 @@ import os
 import asyncio
 from datetime import datetime, timedelta
 
+import asyncpg
 from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import CommandStart
 
 
+# =========================================================
+# НАЛАШТУВАННЯ
+# =========================================================
+
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
+
+db = None
 
 
 # =========================================================
@@ -121,6 +129,8 @@ prices_text = """
 • Педикюр 3 — 650 грн
   Покриття гель-лаком
   + чистка пальчиків і п'ят
+
+• Френч — 100 грн
 """
 
 
@@ -129,11 +139,6 @@ prices_text = """
 # =========================================================
 
 user_data = {}
-
-# Тут зберігаються зайняті слоти:
-# ("2026-10-05", "16:00")
-booked_slots = set()
-
 
 booking_services = [
     "🧼 Чистка",
@@ -151,11 +156,98 @@ booking_services = [
 
 
 # =========================================================
+# DATABASE
+# =========================================================
+
+async def init_database():
+    global db
+
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL не знайдено!")
+
+    db = await asyncpg.create_pool(DATABASE_URL)
+
+    async with db.acquire() as conn:
+
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS bookings (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT,
+                name TEXT NOT NULL,
+                username TEXT,
+                service TEXT NOT NULL,
+                booking_date TEXT NOT NULL,
+                booking_time TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        await conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS unique_booking_slot
+            ON bookings (booking_date, booking_time)
+            WHERE booking_time != 'Потрібно узгодити'
+        """)
+
+
+async def is_slot_booked(date_key: str, time: str) -> bool:
+
+    async with db.acquire() as conn:
+
+        result = await conn.fetchval(
+            """
+            SELECT 1
+            FROM bookings
+            WHERE booking_date = $1
+            AND booking_time = $2
+            LIMIT 1
+            """,
+            date_key,
+            time
+        )
+
+        return result is not None
+
+
+async def save_booking(
+    user_id: int,
+    name: str,
+    username: str,
+    service: str,
+    booking_date: str,
+    booking_time: str
+):
+
+    async with db.acquire() as conn:
+
+        await conn.execute(
+            """
+            INSERT INTO bookings
+            (
+                user_id,
+                name,
+                username,
+                service,
+                booking_date,
+                booking_time
+            )
+            VALUES ($1, $2, $3, $4, $5, $6)
+            """,
+            user_id,
+            name,
+            username,
+            service,
+            booking_date,
+            booking_time
+        )
+
+
+# =========================================================
 # START
 # =========================================================
 
 @dp.message(CommandStart())
 async def start(message: Message):
+
     await message.answer(
         "💅 Вітаю! Я бот майстра манікюру!\n\n"
         "Оберіть потрібний розділ:",
@@ -169,6 +261,7 @@ async def start(message: Message):
 
 @dp.message(lambda message: message.text == "💅 Послуги")
 async def services(message: Message):
+
     await message.answer(
         "💅 НАШІ ПОСЛУГИ\n\n"
         "🧼 Чистка\n"
@@ -191,6 +284,7 @@ async def services(message: Message):
 
 @dp.message(lambda message: message.text == "💰 Ціни")
 async def prices(message: Message):
+
     await message.answer(prices_text)
 
 
@@ -200,6 +294,7 @@ async def prices(message: Message):
 
 @dp.message(lambda message: message.text == "📍 Адреса")
 async def address(message: Message):
+
     await message.answer(
         "📍 АДРЕСА\n\n"
         "Хмельницький\n\n"
@@ -213,6 +308,7 @@ async def address(message: Message):
 
 @dp.message(lambda message: message.text == "📞 Контакти")
 async def contacts(message: Message):
+
     await message.answer(
         "📞 КОНТАКТИ\n\n"
         "Для запису натисніть «📅 Записатися»."
@@ -273,8 +369,10 @@ def create_date_menu():
 
         if i == 0:
             button_text = f"📅 Сьогодні {date_text}"
+
         elif i == 1:
             button_text = f"📅 Завтра {date_text}"
+
         else:
             button_text = f"📅 {date_text}"
 
@@ -296,7 +394,7 @@ def create_date_menu():
 # КНОПКИ ЧАСУ
 # =========================================================
 
-def create_time_menu(date_key):
+async def create_time_menu(date_key):
 
     times = [
         "10:00",
@@ -309,9 +407,7 @@ def create_time_menu(date_key):
 
     for time in times:
 
-        slot = (date_key, time)
-
-        if slot not in booked_slots:
+        if not await is_slot_booked(date_key, time):
 
             keyboard.append([
                 KeyboardButton(text=f"🕐 {time}")
@@ -359,7 +455,6 @@ async def booking_steps(message: Message):
 
         return
 
-
     # -----------------------------------------------------
     # ДАТА
     # -----------------------------------------------------
@@ -373,16 +468,21 @@ async def booking_steps(message: Message):
             date_text = text.replace("📅", "").strip()
 
             if "Сьогодні" in date_text:
+
                 date_part = date_text.replace(
-                    "Сьогодні", ""
+                    "Сьогодні",
+                    ""
                 ).strip()
 
             elif "Завтра" in date_text:
+
                 date_part = date_text.replace(
-                    "Завтра", ""
+                    "Завтра",
+                    ""
                 ).strip()
 
             else:
+
                 date_part = date_text
 
             current_year = datetime.now().year
@@ -396,10 +496,12 @@ async def booking_steps(message: Message):
             data["date"] = date_key
             data["date_display"] = date_part
 
+            time_menu = await create_time_menu(date_key)
+
             await message.answer(
                 f"📅 Обрана дата: {date_part}\n\n"
                 "⏰ Оберіть вільний час:",
-                reply_markup=create_time_menu(date_key)
+                reply_markup=time_menu
             )
 
             return
@@ -417,7 +519,6 @@ async def booking_steps(message: Message):
 
             return
 
-
     # -----------------------------------------------------
     # ЧАС
     # -----------------------------------------------------
@@ -432,21 +533,15 @@ async def booking_steps(message: Message):
 
             date_key = data["date"]
 
-            slot = (date_key, time)
-
-            # Додаткова перевірка
-            if slot in booked_slots:
+            if await is_slot_booked(date_key, time):
 
                 await message.answer(
                     "❌ На жаль, цей час уже зайнятий.\n\n"
                     "Оберіть інший час:",
-                    reply_markup=create_time_menu(date_key)
+                    reply_markup=await create_time_menu(date_key)
                 )
 
                 return
-
-            # Бронюємо слот
-            booked_slots.add(slot)
 
             data["time"] = time
 
@@ -475,7 +570,11 @@ async def booking_steps(message: Message):
 # ЗАВЕРШЕННЯ ЗАПИСУ
 # =========================================================
 
-async def finish_booking(message: Message, user_id: int, time: str):
+async def finish_booking(
+    message: Message,
+    user_id: int,
+    time: str
+):
 
     data = user_data[user_id]
 
@@ -486,6 +585,27 @@ async def finish_booking(message: Message, user_id: int, time: str):
         if username
         else "немає"
     )
+
+    try:
+
+        await save_booking(
+            user_id=user_id,
+            name=data["name"],
+            username=username_text,
+            service=data["service"],
+            booking_date=data["date"],
+            booking_time=time
+        )
+
+    except asyncpg.UniqueViolationError:
+
+        await message.answer(
+            "❌ На жаль, цей час щойно зайняли.\n\n"
+            "Оберіть інший час.",
+            reply_markup=await create_time_menu(data["date"])
+        )
+
+        return
 
     booking_text = (
         "🔔 НОВИЙ ЗАПИС!\n\n"
@@ -516,6 +636,7 @@ async def finish_booking(message: Message, user_id: int, time: str):
 # =========================================================
 
 async def health(request):
+
     return web.Response(text="OK")
 
 
@@ -551,10 +672,13 @@ async def start_web_server():
 
 async def main():
 
+    await init_database()
+
     await start_web_server()
 
     await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
+
     asyncio.run(main())
