@@ -2,7 +2,7 @@ import os
 import asyncio
 from aiohttp import web
 from aiogram import Bot, Dispatcher
-from aiogram.types import Message
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import CommandStart
 
 TOKEN = os.getenv("BOT_TOKEN")
@@ -11,11 +11,83 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 
+# Головне меню
+main_menu = ReplyKeyboardMarkup(
+    keyboard=[
+        [
+            KeyboardButton(text="💅 Послуги"),
+            KeyboardButton(text="💰 Ціни"),
+        ],
+        [
+            KeyboardButton(text="📅 Записатися"),
+            KeyboardButton(text="📍 Адреса"),
+        ],
+        [
+            KeyboardButton(text="📞 Контакти"),
+        ],
+    ],
+    resize_keyboard=True
+)
+
+
 @dp.message(CommandStart())
 async def start(message: Message):
     await message.answer(
         "💅 Вітаю! Я бот майстра манікюру!\n\n"
-        "Напиши мені, щоб дізнатися про послуги та записатися."
+        "Оберіть потрібний розділ:",
+        reply_markup=main_menu
+    )
+
+
+@dp.message(lambda message: message.text == "💅 Послуги")
+async def services(message: Message):
+    await message.answer(
+        "💅 Наші послуги:\n\n"
+        "• Манікюр\n"
+        "• Покриття гель-лаком\n"
+        "• Нарощування нігтів\n"
+        "• Дизайн нігтів\n"
+        "• Педикюр"
+    )
+
+
+@dp.message(lambda message: message.text == "💰 Ціни")
+async def prices(message: Message):
+    await message.answer(
+        "💰 Ціни:\n\n"
+        "• Манікюр — уточнюйте\n"
+        "• Гель-лак — уточнюйте\n"
+        "• Нарощування — уточнюйте\n"
+        "• Дизайн — від 20 грн\n"
+        "• Педикюр — уточнюйте"
+    )
+
+
+@dp.message(lambda message: message.text == "📍 Адреса")
+async def address(message: Message):
+    await message.answer(
+        "📍 Адреса:\n"
+        "Хмельницький\n\n"
+        "Точну адресу повідомимо під час запису."
+    )
+
+
+@dp.message(lambda message: message.text == "📞 Контакти")
+async def contacts(message: Message):
+    await message.answer(
+        "📞 Контакти:\n\n"
+        "Для запису натисніть «📅 Записатися»."
+    )
+
+
+@dp.message(lambda message: message.text == "📅 Записатися")
+async def booking(message: Message):
+    await message.answer(
+        "📅 Для запису напишіть:\n\n"
+        "1. Яка послуга вам потрібна\n"
+        "2. Бажана дата\n"
+        "3. Бажаний час\n\n"
+        "Ми зв'яжемося з вами для підтвердження."
     )
 
 
@@ -31,18 +103,12 @@ async def start_web_server():
     await runner.setup()
 
     port = int(os.environ.get("PORT", 10000))
-
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-
-    print(f"Web server started on port {port}")
 
 
 async def main():
     await start_web_server()
-
-    print("Telegram bot started")
-
     await dp.start_polling(bot)
 
 
